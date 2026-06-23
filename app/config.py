@@ -309,10 +309,10 @@ class Settings:
     database_path: str = str(BASE_DIR / "data" / "papers.db")
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "").strip()
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
-    openai_enabled: bool = os.getenv("OPENAI_ENABLED", "true").lower() == "true"
+    openai_enabled: bool = os.getenv("OPENAI_ENABLED", "false").lower() == "true"
     crossref_mailto: str = os.getenv("CROSSREF_MAILTO", "").strip()
     default_domains: list[str] = None
-    scheduler_enabled: bool = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+    scheduler_enabled: bool = os.getenv("SCHEDULER_ENABLED", "false").lower() == "true"
     scheduler_hour: int = int(os.getenv("SCHEDULER_HOUR", "8"))
     scheduler_minute: int = int(os.getenv("SCHEDULER_MINUTE", "0"))
     collect_max_results: int = int(os.getenv("COLLECT_MAX_RESULTS", "24"))

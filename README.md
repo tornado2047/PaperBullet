@@ -1,57 +1,276 @@
-# Biomed Research Brief
+# PaperBullet
 
-一个面向生物医学 AI 的日报式论文简报站，支持：
+PaperBullet is a lightweight biomedical literature digest web app. It collects papers from preprint servers, PubMed, and selected official journal feeds, then organizes them into a readable daily or date-range brief.
 
-- 生医领域切换与日期切换
-- 多源抓取：arXiv / bioRxiv / medRxiv / PubMed
-- 提取作者、机构、基金、期刊或预印本来源等基础信息
-- 自动生成中文短标题、重点摘要、创新点和今日观察
-- 日报首页与历史归档页
+The project is designed for small labs, reading groups, students, clinicians, and biomedical AI researchers who want a simple self-hosted paper radar.
 
-## 启动
+## Features
+
+- Biomedical field tabs:
+  - Biomedical Overview
+  - Drug Discovery
+  - Medical Imaging
+  - Clinical AI & Medical Language Models
+  - Genomics & Multi-omics
+  - Proteins & Biomolecules
+- Multi-source collection:
+  - arXiv
+  - bioRxiv
+  - medRxiv
+  - PubMed
+  - Nature / Science / Cell official feeds
+- Paper metadata extraction:
+  - authors
+  - affiliations
+  - funders
+  - DOI
+  - journal or server
+  - original link and PDF link when available
+- Chinese and English interface.
+- Date-range reading, source filtering, pagination, archive page, and recommendation cards.
+- No required third-party Python packages for the default rule-based mode.
+- Optional OpenAI-powered summarization if you install `openai` and provide an API key.
+
+## Quick Start
+
+Requirements:
+
+- Python 3.10 or newer
+- Git
+
+Clone the repository:
+
+```bash
+git clone https://github.com/tornado2047/PaperBullet.git
+cd PaperBullet
+```
+
+Create your local environment file:
 
 ```bash
 copy .env.example .env
+```
+
+On macOS or Linux:
+
+```bash
+cp .env.example .env
+```
+
+Start the app:
+
+```bash
 python run.py
 ```
 
-浏览器打开：
+Open:
 
-`http://127.0.0.1:8000`
+```text
+http://127.0.0.1:8000
+```
 
-## 环境变量
+The app can be used without an OpenAI API key. In that mode, it uses rule-based paper analysis and displays original abstracts when available.
 
-- `OPENAI_API_KEY`: 可选，不填则使用规则摘要
-- `OPENAI_MODEL`: 默认 `gpt-4o-mini`
-- `OPENAI_ENABLED`: 是否启用 LLM 摘要
-- `CROSSREF_MAILTO`: 建议填写邮箱，使用 polite pool
-- `DEFAULT_DOMAINS`: 定时任务默认抓取领域，逗号分隔
-- `SCHEDULER_ENABLED`: 是否启用定时任务
-- `SCHEDULER_HOUR`: 每日触发小时
-- `SCHEDULER_MINUTE`: 每日触发分钟
-- `COLLECT_MAX_RESULTS`: 单次抓取上限
+## First Use Tutorial
 
-## 当前领域预设
+1. Open the home page.
+2. Choose a biomedical field tab, such as `Medical Imaging` or `Drug Discovery`.
+3. Select a date range.
+4. Click `Load range` to read papers already stored locally.
+5. Click `Refresh range` to collect fresh papers from remote sources and rebuild the digest.
+6. Use source chips, such as `PubMed`, `bioRxiv`, or `Science`, to narrow the current issue.
+7. Switch `中文 / EN` in the top-right corner if you prefer another interface language.
+8. Open `Archive` to revisit previously generated digests.
 
-- `biomed_all`
-- `drug_discovery`
-- `medical_imaging`
-- `clinical_ai`
-- `genomics_omics`
-- `protein_biomolecules`
+For a first test, choose a short date range such as the last 7 days. A long range may take noticeably longer because the app queries multiple remote services.
+
+## Configuration
+
+All runtime settings live in `.env`. Do not commit your real `.env` file.
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `APP_HOST` | `127.0.0.1` | Server bind address. Use `0.0.0.0` for LAN access. |
+| `APP_PORT` | `8000` | Server port. |
+| `OPENAI_API_KEY` | empty | Optional OpenAI API key. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Model used when OpenAI summarization is enabled. |
+| `OPENAI_ENABLED` | `false` | Set to `true` to use OpenAI-powered summaries. |
+| `CROSSREF_MAILTO` | `your-email@example.com` | Recommended by Crossref for polite API usage. |
+| `DEFAULT_DOMAINS` | `biomed_all,drug_discovery,medical_imaging` | Domains used by the optional scheduler. |
+| `SCHEDULER_ENABLED` | `false` | Set to `true` to run daily collection inside the app process. |
+| `SCHEDULER_HOUR` | `8` | Scheduler hour. |
+| `SCHEDULER_MINUTE` | `0` | Scheduler minute. |
+| `COLLECT_MAX_RESULTS` | `24` | Per-source collection cap. |
+
+## Optional OpenAI Summaries
+
+Install the optional package:
+
+```bash
+python -m pip install openai
+```
+
+Update `.env`:
+
+```env
+OPENAI_ENABLED=true
+OPENAI_API_KEY=your_api_key_here
+OPENAI_MODEL=gpt-4o-mini
+```
+
+Restart the app.
+
+## LAN Deployment
+
+To let other users in the same local network access PaperBullet:
+
+1. Choose one machine as the server.
+2. Set `.env`:
+
+```env
+APP_HOST=0.0.0.0
+APP_PORT=8000
+```
+
+3. Start the app:
+
+```bash
+python run.py
+```
+
+4. Find the server IP.
+
+On Windows:
+
+```powershell
+ipconfig
+```
+
+On macOS or Linux:
+
+```bash
+ifconfig
+```
+
+5. Other users open:
+
+```text
+http://SERVER_IP:8000
+```
+
+6. If the page cannot be reached, allow inbound traffic for port `8000` in the server firewall.
+
+Recommended LAN usage:
+
+- Let normal users read and filter papers.
+- Let one maintainer click `Refresh range` or run scheduled refreshes.
+- Use a fixed LAN IP for the server.
+
+## Public Deployment Notes
+
+PaperBullet currently uses SQLite and a simple Python HTTP server. This is practical for personal use, group demos, lab LANs, and small internal deployments.
+
+For a public internet-facing service, consider adding:
+
+- a production reverse proxy such as Caddy or Nginx
+- HTTPS
+- authentication for refresh endpoints
+- a background worker for long refresh jobs
+- PostgreSQL instead of SQLite
+- rate limits for remote collection actions
+- monitoring and backups
 
 ## API
 
-- `GET /api/domains` 获取领域配置
-- `GET /api/digest?domain=biomed_all&date=2026-04-25` 获取日报
-- `POST /api/digest/refresh` 手动抓取并重建日报
-- `GET /api/archive?domain=biomed_all&limit=12` 获取归档卡片
-- `GET /api/papers?...` 保留为调试接口
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/domains` | List biomedical field presets. |
+| `GET /api/digest?domain=biomed_all&date_from=2026-01-01&date_to=2026-01-07&page=1&page_size=10` | Read a digest for a date range. |
+| `POST /api/digest/refresh` | Collect remote papers and rebuild a digest. |
+| `GET /api/archive?domain=biomed_all&limit=12` | Read archive cards. |
+| `GET /api/papers?domain=biomed_all&date=2026-01-01&limit=20` | Debug endpoint for stored papers. |
 
-## 说明
+Example refresh request:
 
-- 多源抓取后会统一归一到同一份 paper schema，再生成日报结构。
-- arXiv / bioRxiv / medRxiv 天然字段不完全一致，因此系统会尝试通过 DOI 或标题在 Crossref 中做补全。
-- 基金、机构依赖元数据完整度，部分论文可能为空。
-- 调度任务是进程内调度，适合原型与内网部署；正式生产建议使用系统级定时器或工作流平台。
-- 如果想启用更强摘要能力，可手动安装 `openai`。
+```bash
+curl -X POST http://127.0.0.1:8000/api/digest/refresh \
+  -H "Content-Type: application/json" \
+  -d "{\"domain\":\"biomed_all\",\"date_from\":\"2026-01-01\",\"date_to\":\"2026-01-07\",\"limit\":18,\"page\":1,\"page_size\":10}"
+```
+
+## Data Sources
+
+PaperBullet uses public metadata services and feeds:
+
+- arXiv export API
+- bioRxiv API
+- medRxiv API
+- NCBI PubMed E-utilities
+- Crossref REST API
+- selected official RSS feeds from Nature, Science, and Cell Press
+
+Metadata availability varies by source. Affiliations, funders, abstracts, PDFs, and citation counts may be missing for some papers.
+
+## Project Structure
+
+```text
+PaperBullet/
+  app/
+    main.py                 HTTP server and API routes
+    config.py               domain presets and runtime settings
+    db.py                   SQLite persistence
+    services/
+      arxiv_client.py
+      biorxiv_client.py
+      pubmed_client.py
+      journal_client.py
+      crossref_client.py
+      paper_service.py
+      summarizer.py
+    static/
+      index.html
+      archive.html
+      app.js
+      archive.js
+      styles.css
+  run.py
+  .env.example
+  README.md
+```
+
+## Troubleshooting
+
+### The page opens but has no papers
+
+Click `Refresh range`. `Load range` only reads data already stored locally.
+
+### Refresh is slow
+
+Use a shorter date range first. PaperBullet queries several remote sources and enriches metadata.
+
+### PubMed or Crossref returns incomplete metadata
+
+This is normal. Some records do not include full affiliations, funders, abstracts, or DOI metadata.
+
+### Other LAN users cannot open the page
+
+Check that `APP_HOST=0.0.0.0`, the server firewall allows the port, and users are visiting `http://SERVER_IP:APP_PORT`.
+
+### OpenAI summaries are not appearing
+
+Make sure `openai` is installed, `OPENAI_ENABLED=true`, and `OPENAI_API_KEY` is set in `.env`.
+
+## Contributing
+
+Issues and pull requests are welcome. Useful contribution areas include:
+
+- more biomedical data sources
+- better paper ranking
+- export to Markdown, CSV, or Excel
+- user accounts and saved reading lists
+- production deployment templates
+- better multilingual summarization
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
