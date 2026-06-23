@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Archive | 论文速递 | Paper Bullet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="archive-page">
+    <div class="container">
+      <nav class="site-nav">
+        <div class="nav-brand">
+          <a class="nav-title" id="nav-title" href="/">论文速递</a>
+        </div>
+        <div class="nav-links">
+          <a href="/" id="nav-digest-link">日报</a>
+          <a href="/archive" id="nav-archive-link" class="active">归档</a>
+          <div class="lang-switch" aria-label="Language switch">
+            <button id="lang-zh-btn" class="lang-btn active" type="button">中文</button>
+            <button id="lang-en-btn" class="lang-btn" type="button">EN</button>
+          </div>
+        </div>
+      </nav>
+
+      <header class="page-header">
+        <p class="article-meta"><span id="archive-meta-label">Archive</span><span aria-hidden="true">·</span><span id="archive-meta-sub">历史日报</span></p>
+        <h1 id="archive-title">论文速递归档</h1>
+        <p id="archive-subtitle" class="page-subtitle">按日期回看往期导览，快速定位最近一段时间的重要生物医学研究文章。</p>
+      </header>
+
+      <section id="archive-list" class="archive-listing"></section>
+
+      <div class="archive-actions">
+        <button id="archive-more-btn" class="secondary-btn" type="button">加载更多</button>
+      </div>
+    </div>
+    <script src="archive.js"></script>
+  </body>
+  </html>

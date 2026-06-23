@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>论文速递 | Paper Bullet</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="container">
+      <nav class="site-nav">
+        <div class="nav-brand">
+          <a class="nav-title" id="nav-title" href="/">论文速递</a>
+        </div>
+        <div class="nav-links">
+          <a href="/" id="nav-digest-link" class="active">日报</a>
+          <a href="/archive" id="nav-archive-link">归档</a>
+          <div class="lang-switch" aria-label="Language switch">
+            <button id="lang-zh-btn" class="lang-btn active" type="button">中文</button>
+            <button id="lang-en-btn" class="lang-btn" type="button">EN</button>
+          </div>
+        </div>
+      </nav>
+
+      <section class="masthead">
+        <div class="masthead-copy">
+          <p class="article-meta"><span id="digest-meta-brand">Paper Bullet</span><span aria-hidden="true">·</span><span id="digest-meta-date">-</span></p>
+          <h1 id="digest-title">论文速递</h1>
+          <p id="digest-subtitle" class="page-subtitle">聚合预印本、PubMed 与 Nature / Cell / Science 官方期刊来源，整理最新生物医学论文摘要与关键词。</p>
+        </div>
+      </section>
+
+      <section class="control-strip article-section">
+        <div id="domain-tabs" class="tab-row domain-tabs" aria-label="领域选择"></div>
+        <p id="domain-description" class="domain-description"></p>
+        <div class="control-topline">
+          <div class="source-stats-wrap">
+            <span id="source-stats-label" class="source-stats-label">本期来源</span>
+            <div id="source-stats" class="source-stats"></div>
+          </div>
+          <a href="/archive" id="archive-link" class="archive-link">查看归档</a>
+        </div>
+        <div class="control-actions">
+          <div class="date-controls">
+            <button id="prev-week-btn" class="nav-btn" type="button">上一周</button>
+            <input id="date-from" type="date" />
+            <span id="range-separator" class="range-separator">至</span>
+            <input id="date-to" type="date" />
+            <button id="next-week-btn" class="nav-btn" type="button">下一周</button>
+          </div>
+          <div class="action-buttons">
+            <button id="current-week-btn" class="secondary-btn" type="button">最近一周</button>
+            <button id="load-btn" class="secondary-btn" type="button">读取本时段</button>
+            <button id="refresh-btn" class="primary-btn" type="button">更新本时段</button>
+          </div>
+        </div>
+        <div id="status" class="status">准备就绪</div>
+      </section>
+
+      <main id="digest-root">
+        <section class="article-section section-papers reveal">
+          <div class="section-heading">
+            <h2 id="paper-section-title">论文列表</h2>
+            <span id="paper-count" class="section-meta">-</span>
+          </div>
+          <div id="paper-list"></div>
+          <div id="pagination" class="pagination"></div>
+        </section>
+
+        <section class="article-section section-observation reveal">
+          <h2 id="category-section-title">领域分布</h2>
+          <div id="category-stats" class="category-stats"></div>
+        </section>
+
+        <section class="related-section reveal" aria-label="Paper recommendations">
+          <h2 id="recommendation-section-title">Paper 推荐</h2>
+          <div id="recommended-grid" class="related-grid"></div>
+        </section>
+      </main>
+    </div>
+    <script src="app.js"></script>
+  </body>
+</html>
