@@ -233,6 +233,37 @@ def delete_papers_for_date(domain: str, collected_for_date: str) -> None:
         )
 
 
+def delete_papers_for_date_sources(domain: str, collected_for_date: str, source_filters: list[str]) -> None:
+    clauses = []
+    params: list[object] = [domain, collected_for_date]
+    for source in source_filters:
+        if source in {"arxiv", "biorxiv", "medrxiv", "pubmed"}:
+            clauses.append("source = ?")
+            params.append(source)
+        elif source == "cell":
+            clauses.append("source = ?")
+            params.append("cell_press")
+        elif source == "science":
+            clauses.append("(source = ? OR lower(journal_or_server) = ?)")
+            params.extend(["science_journal", "science"])
+        elif source == "nature":
+            clauses.append("(source = ? OR lower(journal_or_server) LIKE ?)")
+            params.extend(["nature_journal", "nature%"])
+
+    if not clauses:
+        return
+
+    with get_connection() as conn:
+        conn.execute(
+            f"""
+            DELETE FROM papers
+            WHERE domain = ? AND collected_for_date = ?
+            AND ({" OR ".join(clauses)})
+            """,
+            params,
+        )
+
+
 def list_papers(domain: str, collected_for_date: str, limit: int) -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import re
 from datetime import date, datetime
 from email.utils import parsedate_to_datetime
@@ -11,19 +12,41 @@ from app.config import DOMAIN_PRESETS, OFFICIAL_JOURNAL_FEEDS
 from app.services.http_utils import fetch_text
 
 
-def fetch_official_journal_papers(domain: str, target_date: date, max_results: int) -> list[dict[str, Any]]:
+def fetch_official_journal_papers(
+    domain: str,
+    target_date: date,
+    max_results: int,
+    source_filters: list[str] | None = None,
+) -> list[dict[str, Any]]:
     domain_config = DOMAIN_PRESETS[domain]
     keywords = [item.lower() for item in domain_config.get("journal_keywords", [])]
-    feeds = OFFICIAL_JOURNAL_FEEDS
+    selected = set(source_filters or [])
+    feeds = [feed for feed in OFFICIAL_JOURNAL_FEEDS if not selected or _feed_family_key(feed) in selected]
     if not feeds:
         return []
 
     papers: list[dict[str, Any]] = []
-    for feed in feeds:
-        default_limit = 2 if feed["source"] == "science_journal" else 3
-        per_feed_limit = int(feed.get("per_feed_limit", max(default_limit, min(max_results, 6))))
-        papers.extend(_fetch_feed(feed, domain, keywords, target_date, per_feed_limit))
+    with ThreadPoolExecutor(max_workers=min(len(feeds), 6)) as executor:
+        futures = []
+        for feed in feeds:
+            default_limit = 2 if feed["source"] == "science_journal" else 3
+            per_feed_limit = int(feed.get("per_feed_limit", max(default_limit, min(max_results, 6))))
+            futures.append(executor.submit(_fetch_feed, feed, domain, keywords, target_date, per_feed_limit))
+        for future in as_completed(futures):
+            papers.extend(future.result())
     return papers[:max_results]
+
+
+def _feed_family_key(feed: dict[str, Any]) -> str:
+    source = feed.get("source")
+    journal = (feed.get("journal") or "").lower()
+    if source == "cell_press":
+        return "cell"
+    if source == "science_journal" or journal == "science":
+        return "science"
+    if source == "nature_journal" or journal.startswith("nature"):
+        return "nature"
+    return "other"
 
 
 def _fetch_feed(

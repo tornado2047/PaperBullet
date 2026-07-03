@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from typing import Any
 
 from app.config import DOMAIN_PRESETS, settings
 from app.db import (
     delete_papers_for_date,
+    delete_papers_for_date_sources,
     find_related_digests,
     get_daily_digest,
     list_archive_cards,
@@ -37,8 +39,9 @@ def collect_papers(
 ) -> dict[str, Any]:
     del custom_query
     date_from, date_to = _parse_date_range(target_date_str, target_date_to_str)
+    normalized_sources = _normalize_source_filters(source_filters)
     for current_date in _iterate_dates(date_from, date_to):
-        _collect_single_day(domain, current_date, limit)
+        _collect_single_day(domain, current_date, limit, normalized_sources)
     return get_digest(
         domain=domain,
         target_date_str=date_from.isoformat(),
@@ -46,7 +49,7 @@ def collect_papers(
         target_date_to_str=date_to.isoformat(),
         page=page,
         page_size=page_size,
-        source_filters=source_filters,
+        source_filters=normalized_sources,
     )
 
 
@@ -177,33 +180,72 @@ def _get_domain_config(domain: str) -> dict[str, Any]:
     return DOMAIN_PRESETS[domain]
 
 
-def _fetch_all_sources(domain_config: dict[str, Any], target_date: date, limit: int) -> list[dict[str, Any]]:
+def _fetch_all_sources(
+    domain_config: dict[str, Any],
+    target_date: date,
+    limit: int,
+    source_filters: list[str] | None = None,
+) -> list[dict[str, Any]]:
     per_source_limit = min(max(limit, 9), settings.collect_max_results)
     queries = domain_config["source_queries"]
+    selected = set(source_filters or [])
+    tasks = []
     papers: list[dict[str, Any]] = []
-    papers.extend(_safe_fetch(fetch_latest_papers, queries["arxiv"], target_date, per_source_limit))
-    papers.extend(
-        _safe_fetch(
-            fetch_preprints,
-            server="biorxiv",
-            target_date=target_date,
-            max_results=per_source_limit,
-            categories=queries.get("biorxiv_categories"),
-            keywords=queries.get("biorxiv_keywords"),
+
+    if not selected or "arxiv" in selected:
+        tasks.append((fetch_latest_papers, (queries["arxiv"], target_date, per_source_limit), {}))
+    if not selected or "biorxiv" in selected:
+        tasks.append(
+            (
+                fetch_preprints,
+                (),
+                {
+                    "server": "biorxiv",
+                    "target_date": target_date,
+                    "max_results": per_source_limit,
+                    "categories": queries.get("biorxiv_categories"),
+                    "keywords": queries.get("biorxiv_keywords"),
+                },
+            )
         )
-    )
-    papers.extend(
-        _safe_fetch(
-            fetch_preprints,
-            server="medrxiv",
-            target_date=target_date,
-            max_results=per_source_limit,
-            categories=queries.get("medrxiv_categories"),
-            keywords=queries.get("medrxiv_keywords"),
+    if not selected or "medrxiv" in selected:
+        tasks.append(
+            (
+                fetch_preprints,
+                (),
+                {
+                    "server": "medrxiv",
+                    "target_date": target_date,
+                    "max_results": per_source_limit,
+                    "categories": queries.get("medrxiv_categories"),
+                    "keywords": queries.get("medrxiv_keywords"),
+                },
+            )
         )
-    )
-    papers.extend(_safe_fetch(fetch_pubmed_papers, queries["pubmed"], target_date, per_source_limit))
-    papers.extend(_safe_fetch(fetch_official_journal_papers, domain=domain_config["key"], target_date=target_date, max_results=per_source_limit))
+    if not selected or "pubmed" in selected:
+        tasks.append((fetch_pubmed_papers, (queries["pubmed"], target_date, per_source_limit), {}))
+    journal_filters = [key for key in ["nature", "science", "cell"] if key in selected]
+    if not selected or journal_filters:
+        tasks.append(
+            (
+                fetch_official_journal_papers,
+                (),
+                {
+                    "domain": domain_config["key"],
+                    "target_date": target_date,
+                    "max_results": per_source_limit,
+                    "source_filters": journal_filters if selected else None,
+                },
+            )
+        )
+
+    if not tasks:
+        return papers
+
+    with ThreadPoolExecutor(max_workers=min(len(tasks), 6)) as executor:
+        futures = [executor.submit(_safe_fetch, fetcher, *args, **kwargs) for fetcher, args, kwargs in tasks]
+        for future in as_completed(futures):
+            papers.extend(future.result())
     return papers
 
 
@@ -214,31 +256,40 @@ def _safe_fetch(fetcher, *args, **kwargs) -> list[dict[str, Any]]:
         return []
 
 
-def _collect_single_day(domain: str, target_date: date, limit: int) -> list[dict[str, Any]]:
+def _collect_single_day(
+    domain: str,
+    target_date: date,
+    limit: int,
+    source_filters: list[str] | None = None,
+) -> list[dict[str, Any]]:
     domain_config = _get_domain_config(domain)
     domain_config = {**domain_config, "key": domain}
-    delete_papers_for_date(domain, target_date.isoformat())
-    fetched = _fetch_all_sources(domain_config, target_date, limit)
+    if source_filters:
+        delete_papers_for_date_sources(domain, target_date.isoformat(), source_filters)
+    else:
+        delete_papers_for_date(domain, target_date.isoformat())
+    fetched = _fetch_all_sources(domain_config, target_date, limit, source_filters)
     papers = _dedupe_papers(fetched)
 
+    processed: list[dict[str, Any]] = []
+    if papers:
+        max_workers = min(max(len(papers), 1), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = [
+                executor.submit(_prepare_paper, paper, domain_config["label"], domain, target_date.isoformat())
+                for paper in papers
+            ]
+            for future in as_completed(futures):
+                prepared = future.result()
+                if prepared is not None:
+                    processed.append(prepared)
+
     persisted: list[dict[str, Any]] = []
-    for paper in papers:
-        _enrich_metadata(paper)
-        if not _is_research_article(paper):
-            continue
-        analysis = summarizer.analyze_paper(paper, domain_config["label"])
-        paper["abstract"] = analysis.get("abstract_brief") or ""
-        paper.update(analysis)
-        paper["domain"] = domain
-        paper["collected_for_date"] = target_date.isoformat()
+    for paper in processed:
         paper["paper_id"] = upsert_paper(paper)
         persisted.append(paper)
 
-    ranked = sorted(
-        persisted,
-        key=lambda item: (item.get("ranking_score", 0), item.get("published_at") or ""),
-        reverse=True,
-    )
+    ranked = list_papers_between(domain=domain, date_from=target_date.isoformat(), date_to=target_date.isoformat(), limit=None)
     digest_bits = summarizer.compose_digest(domain_config["label"], ranked)
     digest = {
         "domain": domain,
@@ -261,6 +312,26 @@ def _collect_single_day(domain: str, target_date: date, limit: int) -> list[dict
     ]
     upsert_daily_digest(digest, digest_items)
     return ranked
+
+
+def _prepare_paper(
+    paper: dict[str, Any],
+    domain_label: str,
+    domain: str,
+    collected_for_date: str,
+) -> dict[str, Any] | None:
+    try:
+        _enrich_metadata(paper)
+        if not _is_research_article(paper):
+            return None
+        analysis = summarizer.analyze_paper(paper, domain_label)
+        paper["abstract"] = analysis.get("abstract_brief") or ""
+        paper.update(analysis)
+        paper["domain"] = domain
+        paper["collected_for_date"] = collected_for_date
+        return paper
+    except Exception:
+        return None
 
 
 def _enrich_metadata(paper: dict[str, Any]) -> None:
