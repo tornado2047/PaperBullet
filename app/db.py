@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -9,12 +10,18 @@ from typing import Iterator
 from app.config import settings
 
 
+_DB_INIT_LOCK = threading.RLock()
+_DB_INITIALIZED = False
+
+
 def _ensure_parent() -> None:
     Path(settings.database_path).parent.mkdir(parents=True, exist_ok=True)
 
 
 @contextmanager
-def get_connection() -> Iterator[sqlite3.Connection]:
+def get_connection(initialize: bool = True) -> Iterator[sqlite3.Connection]:
+    if initialize:
+        _ensure_initialized()
     _ensure_parent()
     conn = sqlite3.connect(settings.database_path)
     conn.row_factory = sqlite3.Row
@@ -26,112 +33,136 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 
 def init_db() -> None:
-    with get_connection() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS papers (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain TEXT NOT NULL,
-                source TEXT NOT NULL,
-                external_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                abstract TEXT,
-                authors_json TEXT NOT NULL,
-                institutions_json TEXT NOT NULL,
-                funders_json TEXT NOT NULL,
-                journal_or_server TEXT,
-                doi TEXT,
-                primary_link TEXT,
-                pdf_link TEXT,
-                published_at TEXT,
-                collected_for_date TEXT NOT NULL,
-                keywords_json TEXT NOT NULL DEFAULT '[]',
-                short_title_cn TEXT,
-                summary_cn TEXT,
-                one_line_takeaway TEXT,
-                topic_label TEXT,
-                publication_year INTEGER,
-                citation_count INTEGER,
-                research_category TEXT,
-                research_type TEXT,
-                brief_basis TEXT,
-                abstract_brief TEXT,
-                introduction_brief TEXT,
-                methods_brief TEXT,
-                results_brief TEXT,
-                discussion_brief TEXT,
-                novelty_score INTEGER,
-                strengths_json TEXT NOT NULL DEFAULT '[]',
-                weaknesses_json TEXT NOT NULL DEFAULT '[]',
-                ranking_score REAL DEFAULT 0,
-                summary TEXT,
-                innovations_json TEXT NOT NULL,
-                raw_json TEXT NOT NULL,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(domain, source, external_id, collected_for_date)
-            )
-            """
+    global _DB_INITIALIZED
+    with _DB_INIT_LOCK:
+        with get_connection(initialize=False) as conn:
+            _create_schema(conn)
+        _DB_INITIALIZED = True
+
+
+def _ensure_initialized() -> None:
+    with _DB_INIT_LOCK:
+        if _DB_INITIALIZED and _has_table("papers"):
+            return
+        init_db()
+
+
+def _has_table(table_name: str) -> bool:
+    _ensure_parent()
+    with sqlite3.connect(settings.database_path) as conn:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+            (table_name,),
+        ).fetchone()
+    return row is not None
+
+
+def _create_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS papers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            source TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            abstract TEXT,
+            authors_json TEXT NOT NULL,
+            institutions_json TEXT NOT NULL,
+            funders_json TEXT NOT NULL,
+            journal_or_server TEXT,
+            doi TEXT,
+            primary_link TEXT,
+            pdf_link TEXT,
+            published_at TEXT,
+            collected_for_date TEXT NOT NULL,
+            keywords_json TEXT NOT NULL DEFAULT '[]',
+            short_title_cn TEXT,
+            summary_cn TEXT,
+            one_line_takeaway TEXT,
+            topic_label TEXT,
+            publication_year INTEGER,
+            citation_count INTEGER,
+            research_category TEXT,
+            research_type TEXT,
+            brief_basis TEXT,
+            abstract_brief TEXT,
+            introduction_brief TEXT,
+            methods_brief TEXT,
+            results_brief TEXT,
+            discussion_brief TEXT,
+            novelty_score INTEGER,
+            strengths_json TEXT NOT NULL DEFAULT '[]',
+            weaknesses_json TEXT NOT NULL DEFAULT '[]',
+            ranking_score REAL DEFAULT 0,
+            summary TEXT,
+            innovations_json TEXT NOT NULL,
+            raw_json TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(domain, source, external_id, collected_for_date)
         )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_papers_lookup
-            ON papers(domain, collected_for_date, published_at DESC)
-            """
+        """
+    )
+    conn.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_papers_lookup
+        ON papers(domain, collected_for_date, published_at DESC)
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_digests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            domain TEXT NOT NULL,
+            digest_date TEXT NOT NULL,
+            title TEXT NOT NULL,
+            subtitle TEXT,
+            overview_json TEXT NOT NULL,
+            observation TEXT,
+            related_json TEXT NOT NULL,
+            total_papers INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(domain, digest_date)
         )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_digests (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                domain TEXT NOT NULL,
-                digest_date TEXT NOT NULL,
-                title TEXT NOT NULL,
-                subtitle TEXT,
-                overview_json TEXT NOT NULL,
-                observation TEXT,
-                related_json TEXT NOT NULL,
-                total_papers INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(domain, digest_date)
-            )
-            """
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS daily_digest_items (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            digest_id INTEGER NOT NULL,
+            paper_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            sort_order INTEGER NOT NULL,
+            UNIQUE(digest_id, role, sort_order)
         )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS daily_digest_items (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                digest_id INTEGER NOT NULL,
-                paper_id INTEGER NOT NULL,
-                role TEXT NOT NULL,
-                sort_order INTEGER NOT NULL,
-                UNIQUE(digest_id, role, sort_order)
-            )
-            """
-        )
-        _ensure_column(conn, "papers", "journal_or_server", "TEXT")
-        _ensure_column(conn, "papers", "keywords_json", "TEXT NOT NULL DEFAULT '[]'")
-        _ensure_column(conn, "papers", "short_title_cn", "TEXT")
-        _ensure_column(conn, "papers", "summary_cn", "TEXT")
-        _ensure_column(conn, "papers", "one_line_takeaway", "TEXT")
-        _ensure_column(conn, "papers", "topic_label", "TEXT")
-        _ensure_column(conn, "papers", "publication_year", "INTEGER")
-        _ensure_column(conn, "papers", "citation_count", "INTEGER")
-        _ensure_column(conn, "papers", "research_category", "TEXT")
-        _ensure_column(conn, "papers", "research_type", "TEXT")
-        _ensure_column(conn, "papers", "brief_basis", "TEXT")
-        _ensure_column(conn, "papers", "abstract_brief", "TEXT")
-        _ensure_column(conn, "papers", "introduction_brief", "TEXT")
-        _ensure_column(conn, "papers", "methods_brief", "TEXT")
-        _ensure_column(conn, "papers", "results_brief", "TEXT")
-        _ensure_column(conn, "papers", "discussion_brief", "TEXT")
-        _ensure_column(conn, "papers", "novelty_score", "INTEGER")
-        _ensure_column(conn, "papers", "strengths_json", "TEXT NOT NULL DEFAULT '[]'")
-        _ensure_column(conn, "papers", "weaknesses_json", "TEXT NOT NULL DEFAULT '[]'")
-        _ensure_column(conn, "papers", "ranking_score", "REAL DEFAULT 0")
-        _ensure_column(conn, "daily_digests", "subtitle", "TEXT")
-        _ensure_column(conn, "daily_digests", "observation", "TEXT")
-        _ensure_column(conn, "daily_digests", "related_json", "TEXT NOT NULL DEFAULT '[]'")
-        _ensure_column(conn, "daily_digests", "total_papers", "INTEGER NOT NULL DEFAULT 0")
+        """
+    )
+    _ensure_column(conn, "papers", "journal_or_server", "TEXT")
+    _ensure_column(conn, "papers", "keywords_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(conn, "papers", "short_title_cn", "TEXT")
+    _ensure_column(conn, "papers", "summary_cn", "TEXT")
+    _ensure_column(conn, "papers", "one_line_takeaway", "TEXT")
+    _ensure_column(conn, "papers", "topic_label", "TEXT")
+    _ensure_column(conn, "papers", "publication_year", "INTEGER")
+    _ensure_column(conn, "papers", "citation_count", "INTEGER")
+    _ensure_column(conn, "papers", "research_category", "TEXT")
+    _ensure_column(conn, "papers", "research_type", "TEXT")
+    _ensure_column(conn, "papers", "brief_basis", "TEXT")
+    _ensure_column(conn, "papers", "abstract_brief", "TEXT")
+    _ensure_column(conn, "papers", "introduction_brief", "TEXT")
+    _ensure_column(conn, "papers", "methods_brief", "TEXT")
+    _ensure_column(conn, "papers", "results_brief", "TEXT")
+    _ensure_column(conn, "papers", "discussion_brief", "TEXT")
+    _ensure_column(conn, "papers", "novelty_score", "INTEGER")
+    _ensure_column(conn, "papers", "strengths_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(conn, "papers", "weaknesses_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(conn, "papers", "ranking_score", "REAL DEFAULT 0")
+    _ensure_column(conn, "daily_digests", "subtitle", "TEXT")
+    _ensure_column(conn, "daily_digests", "observation", "TEXT")
+    _ensure_column(conn, "daily_digests", "related_json", "TEXT NOT NULL DEFAULT '[]'")
+    _ensure_column(conn, "daily_digests", "total_papers", "INTEGER NOT NULL DEFAULT 0")
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, column_type: str) -> None:
