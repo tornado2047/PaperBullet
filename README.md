@@ -101,6 +101,7 @@ All runtime settings live in `.env`. Do not commit your real `.env` file.
 | `SCHEDULER_HOUR` | `8` | Scheduler hour. |
 | `SCHEDULER_MINUTE` | `0` | Scheduler minute. |
 | `COLLECT_MAX_RESULTS` | `24` | Per-source collection cap. |
+| `REFRESH_MAX_DAYS` | `14` | Maximum date-window size for one synchronous refresh request. |
 
 ## Optional OpenAI Summaries
 
@@ -246,7 +247,7 @@ Click `Refresh range`. `Load range` only reads data already stored locally.
 
 ### Refresh is slow
 
-Use a shorter date range first. PaperBullet queries several remote sources and enriches metadata.
+Use a shorter date range first. By default, one synchronous refresh is limited to 14 days because PaperBullet queries several remote sources and enriches metadata. Use repeated shorter refreshes or a scheduled/background workflow for long historical backfills.
 
 ### PubMed or Crossref returns incomplete metadata
 

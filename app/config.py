@@ -316,6 +316,7 @@ class Settings:
     scheduler_hour: int = int(os.getenv("SCHEDULER_HOUR", "8"))
     scheduler_minute: int = int(os.getenv("SCHEDULER_MINUTE", "0"))
     collect_max_results: int = int(os.getenv("COLLECT_MAX_RESULTS", "24"))
+    refresh_max_days: int = int(os.getenv("REFRESH_MAX_DAYS", "14"))
 
     def __post_init__(self) -> None:
         raw_domains = os.getenv("DEFAULT_DOMAINS", "biomed_all")

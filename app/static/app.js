@@ -32,6 +32,7 @@ const domainDescriptionNode = document.getElementById("domain-description");
 
 const today = new Date().toISOString().slice(0, 10);
 const PAGE_SIZE = 10;
+const MAX_REFRESH_DAYS = 14;
 const APP_NAMES = { zh: "论文速递", en: "Paper Bullet" };
 const SOURCE_LABELS = {
   nature: "Nature",
@@ -106,6 +107,7 @@ const TEXT = {
     useRecentWeek: "改看最近一周",
     invalidRange: "开始日期不能晚于结束日期。",
     futureRange: "结束日期不能晚于今天。",
+    refreshRangeTooLarge: (days) => `当前选择了 ${days} 天。为避免页面长时间等待，请一次刷新 ${MAX_REFRESH_DAYS} 天以内，或点击“最近一周”。`,
     loadingShort: "处理中",
     noRecommendations: "当前时段内还没有可推荐的高引论文。",
     currentCountModern: (total, pageCount) => `共 ${total} 篇，本页 ${pageCount} 篇`,
@@ -167,6 +169,7 @@ const TEXT = {
     useRecentWeek: "Use last 7 days",
     invalidRange: "The start date cannot be later than the end date.",
     futureRange: "The end date cannot be later than today.",
+    refreshRangeTooLarge: (days) => `The selected range has ${days} days. To keep the page responsive, refresh ${MAX_REFRESH_DAYS} days or fewer at a time, or use Last 7 days.`,
     loadingShort: "Working",
     noRecommendations: "No citation-based recommendations are available for this range yet.",
     currentCountModern: (total, pageCount) => `${total} papers in total, ${pageCount} on this page`,
@@ -401,6 +404,27 @@ function validateDateRange() {
   }
   if (dateToInput.value > today) {
     setStatus(t("futureRange"), true);
+    return false;
+  }
+  return true;
+}
+
+function selectedRangeDays() {
+  if (!dateFromInput.value || !dateToInput.value) {
+    return 0;
+  }
+  const start = parseIsoDate(dateFromInput.value);
+  const end = parseIsoDate(dateToInput.value);
+  return Math.floor((end - start) / 86400000) + 1;
+}
+
+function validateRefreshRange() {
+  if (!validateDateRange()) {
+    return false;
+  }
+  const days = selectedRangeDays();
+  if (days > MAX_REFRESH_DAYS) {
+    setStatus(t("refreshRangeTooLarge", days), true);
     return false;
   }
   return true;
@@ -860,7 +884,7 @@ async function loadDigest(page = currentPage) {
 }
 
 async function refreshDigest() {
-  if (!validateDateRange()) {
+  if (!validateRefreshRange()) {
     return;
   }
   const requestId = ++activeRequestId;

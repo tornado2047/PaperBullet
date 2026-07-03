@@ -39,6 +39,7 @@ def collect_papers(
 ) -> dict[str, Any]:
     del custom_query
     date_from, date_to = _parse_date_range(target_date_str, target_date_to_str)
+    _validate_refresh_window(date_from, date_to)
     normalized_sources = _normalize_source_filters(source_filters)
     for current_date in _iterate_dates(date_from, date_to):
         _collect_single_day(domain, current_date, limit, normalized_sources)
@@ -488,6 +489,15 @@ def _parse_date_range(value_from: str | None, value_to: str | None) -> tuple[dat
     if start_date > end_date:
         raise ValueError("date_from must be earlier than or equal to date_to")
     return start_date, end_date
+
+
+def _validate_refresh_window(date_from: date, date_to: date) -> None:
+    days = (date_to - date_from).days + 1
+    if days > settings.refresh_max_days:
+        raise ValueError(
+            f"refresh range is too large: {days} days. "
+            f"Please refresh {settings.refresh_max_days} days or fewer at a time."
+        )
 
 
 def _iterate_dates(date_from: date, date_to: date):
