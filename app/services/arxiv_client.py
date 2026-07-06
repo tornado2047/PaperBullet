@@ -21,12 +21,18 @@ def _text(node: ET.Element | None) -> str:
     return " ".join(node.text.split())
 
 
+def _date_filtered_query(query: str, target_date: date) -> str:
+    day = target_date.strftime("%Y%m%d")
+    return f"({query}) AND submittedDate:[{day}0000 TO {day}2359]"
+
+
 def fetch_latest_papers(query: str, target_date: date, max_results: int = 20) -> list[dict[str, Any]]:
-    encoded_query = quote(query, safe='():"+ ')
+    dated_query = _date_filtered_query(query, target_date)
+    encoded_query = quote(dated_query, safe='():"+ ')
     encoded_query = encoded_query.replace(" ", "+")
     url = (
         f"{ARXIV_API_URL}?search_query={encoded_query}"
-        f"&start=0&max_results={max(max_results * 3, 30)}"
+        f"&start=0&max_results={max(max_results, 20)}"
         "&sortBy=submittedDate&sortOrder=descending"
     )
     request = Request(url, headers={"User-Agent": "BiomedDigest/1.0"})
@@ -84,7 +90,7 @@ def fetch_latest_papers(query: str, target_date: date, max_results: int = 20) ->
                 "innovations": [],
                 "raw": {
                     "categories": categories,
-                    "query": query,
+                    "query": dated_query,
                 },
             }
         )

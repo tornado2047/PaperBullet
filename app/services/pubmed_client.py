@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from datetime import date
+import re
+from datetime import date, datetime
 from typing import Any
 from urllib.parse import quote_plus
 from xml.etree import ElementTree as ET
@@ -35,7 +36,11 @@ def fetch_pubmed_papers(query: str, target_date: date, max_results: int) -> list
         detail = detail_map.get(pmid, {})
         if not summary:
             continue
-        published = (summary.get("epubdate") or summary.get("pubdate") or "")[:10]
+        published = (
+            _normalize_pubmed_date(summary.get("epubdate") or "")
+            or detail.get("published_at")
+            or _normalize_pubmed_date(summary.get("pubdate") or "")
+        )
         if published != target_date.isoformat():
             continue
 
@@ -78,6 +83,25 @@ def _extract_doi(article_ids: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def _normalize_pubmed_date(value: str) -> str | None:
+    raw = " ".join(str(value or "").replace(".", "").replace("/", "-").split())
+    if not raw:
+        return None
+
+    iso_match = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})", raw)
+    if iso_match:
+        year, month, day = iso_match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+
+    date_words = " ".join(raw.split()[:3])
+    for fmt in ("%Y %b %d", "%Y %B %d"):
+        try:
+            return datetime.strptime(date_words, fmt).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def _parse_pubmed_xml(root: ET.Element) -> dict[str, dict[str, Any]]:
     details: dict[str, dict[str, Any]] = {}
     for article in root.findall(".//PubmedArticle"):
@@ -111,6 +135,15 @@ def _parse_pubmed_xml(root: ET.Element) -> dict[str, dict[str, Any]]:
             if text and text not in funders:
                 funders.append(text)
 
+        published_at = None
+        article_date = article.find(".//ArticleDate")
+        if article_date is not None:
+            year = _text(article_date.find("Year"))
+            month = _text(article_date.find("Month"))
+            day = _text(article_date.find("Day"))
+            if year and month and day:
+                published_at = _normalize_pubmed_date(f"{year}-{month.zfill(2)}-{day.zfill(2)}")
+
         doi = None
         for node in article.findall(".//ArticleId"):
             if node.attrib.get("IdType") == "doi":
@@ -123,6 +156,7 @@ def _parse_pubmed_xml(root: ET.Element) -> dict[str, dict[str, Any]]:
             "keywords": keywords[:10],
             "funders": funders[:10],
             "doi": doi,
+            "published_at": published_at,
         }
     return details
 

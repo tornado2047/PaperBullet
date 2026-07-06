@@ -1,6 +1,10 @@
 const dateFromInput = document.getElementById("date-from");
 const dateToInput = document.getElementById("date-to");
 const statusNode = document.getElementById("status");
+const progressWrap = document.getElementById("progress-wrap");
+const progressTrack = document.getElementById("progress-track");
+const progressFill = document.getElementById("progress-fill");
+const progressLabel = document.getElementById("progress-label");
 const digestTitle = document.getElementById("digest-title");
 const digestSubtitle = document.getElementById("digest-subtitle");
 const digestMetaBrand = document.getElementById("digest-meta-brand");
@@ -98,6 +102,9 @@ const TEXT = {
     loadingRefresh: "正在抓取时段内多源论文并生成简报，这一步可能需要几十秒...",
     loadingRefreshLegacy: "抓取完成，正在聚合旧版接口论文并生成分页...",
     loadingRefreshChunk: (index, total, from, to) => `正在更新第 ${index} / ${total} 段：${from} 至 ${to}`,
+    progressChunk: (index, total) => `${index} / ${total} 段`,
+    progressDone: "完成",
+    progressFailed: "失败",
     refreshDone: (count) => `更新完成，共整理 ${count} 篇论文`,
     rangeChanged: "已选择新时段，点击“读取本时段”查看已有数据，或点击“更新本时段”抓取新数据。",
     currentPageEmpty: "当前页暂无论文。",
@@ -162,6 +169,9 @@ const TEXT = {
     loadingRefresh: "Refreshing multi-source papers for this range. This may take a while...",
     loadingRefreshLegacy: "Refresh finished. Building pagination from the legacy API...",
     loadingRefreshChunk: (index, total, from, to) => `Refreshing chunk ${index} / ${total}: ${from} to ${to}`,
+    progressChunk: (index, total) => `${index} / ${total} chunks`,
+    progressDone: "Done",
+    progressFailed: "Failed",
     refreshDone: (count) => `Refresh complete, ${count} papers organized`,
     rangeChanged: "New range selected. Click Load range to read stored data, or Refresh range to collect fresh papers.",
     currentPageEmpty: "No papers are available on this page.",
@@ -286,6 +296,21 @@ function parseSourcesParam(value) {
 function setStatus(message, isError = false) {
   statusNode.textContent = message;
   statusNode.classList.toggle("error", isError);
+}
+
+function setProgress(percent, label = "") {
+  const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
+  progressWrap.hidden = false;
+  progressTrack.setAttribute("aria-valuenow", String(safePercent));
+  progressFill.style.width = `${safePercent}%`;
+  progressLabel.textContent = label || `${safePercent}%`;
+}
+
+function hideProgress() {
+  progressWrap.hidden = true;
+  progressTrack.setAttribute("aria-valuenow", "0");
+  progressFill.style.width = "0%";
+  progressLabel.textContent = "0%";
 }
 
 function setBusy(isBusy) {
@@ -874,6 +899,7 @@ async function loadDigest(page = currentPage) {
   if (!validateDateRange()) {
     return;
   }
+  hideProgress();
   const requestId = ++activeRequestId;
   currentPage = Math.max(1, page);
   updateLocation();
@@ -925,6 +951,7 @@ async function refreshDigest() {
   } else {
     setStatus(t("loadingRefresh"));
   }
+  setProgress(0, t("progressChunk", 0, chunks.length));
   setBusy(true);
   try {
     for (let index = 0; index < chunks.length; index += 1) {
@@ -937,6 +964,7 @@ async function refreshDigest() {
           ? t("loadingRefreshChunk", index + 1, chunks.length, chunk.from, chunk.to)
           : t("loadingRefresh")
       );
+      setProgress((index / chunks.length) * 100, t("progressChunk", index, chunks.length));
       const response = await fetch("/api/digest/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -954,6 +982,7 @@ async function refreshDigest() {
       if (!response.ok) {
         throw new Error(payload.detail || "Refresh failed");
       }
+      setProgress(((index + 1) / chunks.length) * 100, t("progressChunk", index + 1, chunks.length));
     }
     if (requestId !== activeRequestId) {
       return;
@@ -971,8 +1000,10 @@ async function refreshDigest() {
       displayPayload = await hydrateLegacyPaginationPayload(payload);
     }
     renderDigest(displayPayload);
+    setProgress(100, t("progressDone"));
     setStatus(t("refreshDone", displayPayload.total_papers || 0));
   } catch (error) {
+    setProgress(100, t("progressFailed"));
     setStatus(error.message || "Refresh failed", true);
   } finally {
     if (requestId === activeRequestId) {
