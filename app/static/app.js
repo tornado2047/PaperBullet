@@ -97,7 +97,9 @@ const TEXT = {
     legacyDone: (page, totalPages) => `已兼容旧版接口分页显示，第 ${page} / ${totalPages} 页`,
     loadingRefresh: "正在抓取时段内多源论文并生成简报，这一步可能需要几十秒...",
     loadingRefreshLegacy: "抓取完成，正在聚合旧版接口论文并生成分页...",
+    loadingRefreshChunk: (index, total, from, to) => `正在更新第 ${index} / ${total} 段：${from} 至 ${to}`,
     refreshDone: (count) => `更新完成，共整理 ${count} 篇论文`,
+    rangeChanged: "已选择新时段，点击“读取本时段”查看已有数据，或点击“更新本时段”抓取新数据。",
     currentPageEmpty: "当前页暂无论文。",
     noCategoryStats: "暂无可展示的领域统计。",
     noSourceStats: "暂无来源统计",
@@ -107,7 +109,7 @@ const TEXT = {
     useRecentWeek: "改看最近一周",
     invalidRange: "开始日期不能晚于结束日期。",
     futureRange: "结束日期不能晚于今天。",
-    refreshRangeTooLarge: (days) => `当前选择了 ${days} 天。为避免页面长时间等待，请一次刷新 ${MAX_REFRESH_DAYS} 天以内，或点击“最近一周”。`,
+    refreshRangeTooLarge: (days) => `当前选择了 ${days} 天，将自动拆分为每段不超过 ${MAX_REFRESH_DAYS} 天进行更新。`,
     loadingShort: "处理中",
     noRecommendations: "当前时段内还没有可推荐的高引论文。",
     currentCountModern: (total, pageCount) => `共 ${total} 篇，本页 ${pageCount} 篇`,
@@ -159,7 +161,9 @@ const TEXT = {
     legacyDone: (page, totalPages) => `Legacy API pagination is active, page ${page} / ${totalPages}`,
     loadingRefresh: "Refreshing multi-source papers for this range. This may take a while...",
     loadingRefreshLegacy: "Refresh finished. Building pagination from the legacy API...",
+    loadingRefreshChunk: (index, total, from, to) => `Refreshing chunk ${index} / ${total}: ${from} to ${to}`,
     refreshDone: (count) => `Refresh complete, ${count} papers organized`,
+    rangeChanged: "New range selected. Click Load range to read stored data, or Refresh range to collect fresh papers.",
     currentPageEmpty: "No papers are available on this page.",
     noCategoryStats: "No field distribution is available yet.",
     noSourceStats: "No source stats available",
@@ -169,7 +173,7 @@ const TEXT = {
     useRecentWeek: "Use last 7 days",
     invalidRange: "The start date cannot be later than the end date.",
     futureRange: "The end date cannot be later than today.",
-    refreshRangeTooLarge: (days) => `The selected range has ${days} days. To keep the page responsive, refresh ${MAX_REFRESH_DAYS} days or fewer at a time, or use Last 7 days.`,
+    refreshRangeTooLarge: (days) => `The selected range has ${days} days and will be refreshed in chunks of ${MAX_REFRESH_DAYS} days or fewer.`,
     loadingShort: "Working",
     noRecommendations: "No citation-based recommendations are available for this range yet.",
     currentCountModern: (total, pageCount) => `${total} papers in total, ${pageCount} on this page`,
@@ -424,10 +428,34 @@ function validateRefreshRange() {
   }
   const days = selectedRangeDays();
   if (days > MAX_REFRESH_DAYS) {
-    setStatus(t("refreshRangeTooLarge", days), true);
-    return false;
+    setStatus(t("refreshRangeTooLarge", days));
   }
   return true;
+}
+
+function buildRefreshChunks() {
+  const chunks = [];
+  const current = parseIsoDate(dateFromInput.value);
+  const end = parseIsoDate(dateToInput.value);
+  while (current <= end) {
+    const chunkStart = new Date(current);
+    const chunkEnd = new Date(current);
+    chunkEnd.setDate(chunkEnd.getDate() + MAX_REFRESH_DAYS - 1);
+    if (chunkEnd > end) {
+      chunkEnd.setTime(end.getTime());
+    }
+    chunks.push({ from: toIsoDate(chunkStart), to: toIsoDate(chunkEnd) });
+    current.setDate(current.getDate() + MAX_REFRESH_DAYS);
+  }
+  return chunks;
+}
+
+function markRangeChanged() {
+  currentPage = 1;
+  updateLocation();
+  if (validateDateRange()) {
+    setStatus(t("rangeChanged"));
+  }
 }
 
 function renderDomains(domains) {
@@ -891,28 +919,51 @@ async function refreshDigest() {
   currentPage = 1;
   updateLocation();
   renderSkeleton();
-  setStatus(t("loadingRefresh"));
+  const chunks = buildRefreshChunks();
+  if (chunks.length > 1) {
+    setStatus(t("refreshRangeTooLarge", selectedRangeDays()));
+  } else {
+    setStatus(t("loadingRefresh"));
+  }
   setBusy(true);
   try {
-    const response = await fetch("/api/digest/refresh", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        domain: selectedDomain,
-        date_from: dateFromInput.value,
-        date_to: dateToInput.value,
-        limit: 18,
-        page: currentPage,
-        page_size: PAGE_SIZE,
-        sources: [...selectedSources],
-      }),
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      throw new Error(payload.detail || "Refresh failed");
+    for (let index = 0; index < chunks.length; index += 1) {
+      const chunk = chunks[index];
+      if (requestId !== activeRequestId) {
+        return;
+      }
+      setStatus(
+        chunks.length > 1
+          ? t("loadingRefreshChunk", index + 1, chunks.length, chunk.from, chunk.to)
+          : t("loadingRefresh")
+      );
+      const response = await fetch("/api/digest/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          domain: selectedDomain,
+          date_from: chunk.from,
+          date_to: chunk.to,
+          limit: 18,
+          page: 1,
+          page_size: PAGE_SIZE,
+          sources: [...selectedSources],
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.detail || "Refresh failed");
+      }
     }
     if (requestId !== activeRequestId) {
       return;
+    }
+    const response = await fetch(
+      `/api/digest?domain=${encodeURIComponent(selectedDomain)}&date_from=${encodeURIComponent(dateFromInput.value)}&date_to=${encodeURIComponent(dateToInput.value)}&page=1&page_size=${encodeURIComponent(PAGE_SIZE)}${selectedSources.size ? `&sources=${encodeURIComponent([...selectedSources].join(","))}` : ""}`
+    );
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || "Load failed");
     }
     let displayPayload = payload;
     if (!("items" in payload) && payload.total_papers) {
@@ -979,13 +1030,11 @@ paperList.addEventListener("click", (event) => {
 });
 
 dateFromInput.addEventListener("change", () => {
-  currentPage = 1;
-  loadDigest(1);
+  markRangeChanged();
 });
 
 dateToInput.addEventListener("change", () => {
-  currentPage = 1;
-  loadDigest(1);
+  markRangeChanged();
 });
 
 paginationNode.addEventListener("click", (event) => {

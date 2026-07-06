@@ -247,7 +247,7 @@ Click `Refresh range`. `Load range` only reads data already stored locally.
 
 ### Refresh is slow
 
-Use a shorter date range first. By default, one synchronous refresh is limited to 14 days because PaperBullet queries several remote sources and enriches metadata. Use repeated shorter refreshes or a scheduled/background workflow for long historical backfills.
+Use a shorter date range first. The web UI automatically splits long refreshes into chunks of 14 days or fewer so the server-side safety limit is not exceeded. Very long historical backfills can still take a while, especially with all sources enabled.
 
 ### PubMed or Crossref returns incomplete metadata
 
